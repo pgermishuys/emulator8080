@@ -933,7 +933,6 @@ int main(int argc, char **argv){
 
     while(done == 0){
         done = Emulate8080Operation(state);
-        //getchar();
     }
 
     return 0;
