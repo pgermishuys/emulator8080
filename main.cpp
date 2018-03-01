@@ -20,7 +20,6 @@ int Disassemble8080Opcodes(unsigned char *codebuffer, int pc)
     printf("%04x ", pc);
     switch (*code)
     {
-
         case 0x00: printf("NOP"); break;
         case 0x01: printf("LXI    B,#$%02x%02x", code[2], code[1]); opbytes=3; break;
         case 0x02: printf("STAX   B"); break;
@@ -306,6 +305,17 @@ typedef struct Flags {
     uint8_t     pad:3;
 } Flags;
 
+typedef struct ConditionCodes {
+	uint8_t		z:1;
+	uint8_t		s:1;
+	uint8_t		p:1;
+	uint8_t		cy:1;
+	uint8_t		ac:1;
+	uint8_t		pad:3;
+} ConditionCodes;
+
+ConditionCodes CC_ZSPAC = {1,1,1,0,1};
+
 typedef struct State8080 {
     // 7 x 8 bit registers
     uint8_t     a;
@@ -320,6 +330,8 @@ typedef struct State8080 {
     uint16_t    sp; //stack pointer
     uint16_t    pc; //program counter
 
+    struct ConditionCodes		cc;
+
     uint8_t     *memory;
     struct      Flags flags;
     uint8_t     int_enable;
@@ -331,13 +343,19 @@ void NotImplementedInstruction(State8080* state){
 }
 
 void DumpProcessorState(State8080* state){
+	printf("------------------------\n");
 	printf("Flags:\n");
 	printf("\tC (carry)=%d,P (parity)=%d,S (sign)=%d,Z (zero)=%d\n", state->flags.cy, state->flags.p,    
 	   state->flags.s, state->flags.z);    
 	printf("Registers:\n");
-	printf("\tA $%02x B $%02x C $%02x D $%02x E $%02x H $%02x L $%02x SP (stack pointer) %04x PC (program counter) %04x\n\n",    
-	   state->a, state->b, state->c, state->d,    
-	   state->e, state->h, state->l, state->sp, state->pc); 
+	printf("\tAF \tBC \tDE \tHL \tPC (program counter) \tSP (stack pointer)\n");
+	printf("\t%02x \t%02x%02x \t%02x%02x \t%02x%02x \t%02x \t\t\t%02x\n",
+           state->a,
+           state->b, state->c,
+           state->d, state->e,
+           state->h, state->l,
+           state->pc, state->sp
+    );
 }
 
 int Emulate8080Operation(State8080* state){
@@ -354,38 +372,79 @@ int Emulate8080Operation(State8080* state){
 		case 0x02: NotImplementedInstruction(state); break;
 		case 0x03: NotImplementedInstruction(state); break;
 		case 0x04: NotImplementedInstruction(state); break;
-		case 0x05: NotImplementedInstruction(state); break;
-		case 0x06: //MVI	B,word
+		case 0x05: {
+                uint8_t res = state->b - 1;
+                state->cc.z = (res == 0);
+                state->cc.s = (0x80 == (res & 0x80));
+                state->cc.p = Parity(res, 8);
+                state->b = res;
+                break;
+        }
+		case 0x06: { //MVI	B,word
 				state->b = opcode[1];
 				state->pc += 1;
 				break;
+        }
 		case 0x07: NotImplementedInstruction(state); break;
 		case 0x08: NotImplementedInstruction(state); break;
-		case 0x09: NotImplementedInstruction(state); break;
+		case 0x09: {
+			uint32_t hl = (state->h << 8) | state->l;
+			uint32_t bc = (state->b << 8) | state->c;
+			uint32_t res = hl + bc;
+			state->h = (res & 0xff00) >> 8;
+			state->l = res & 0xff;
+			state->cc.cy = ((res & 0xffff0000) > 0);
+			break;
+        }
 		case 0x0a: NotImplementedInstruction(state); break;
 		case 0x0b: NotImplementedInstruction(state); break;
 		case 0x0c: NotImplementedInstruction(state); break;
-		case 0x0d: NotImplementedInstruction(state); break;
+		case 0x0d: {
+			uint8_t res = state->c - 1;
+			state->cc.z = (res == 0);
+			state->cc.s = (0x80 == (res & 0x80));
+			state->cc.p = Parity(res, 8);
+			state->c = res;
+			break;
+        }
 		case 0x0e: NotImplementedInstruction(state); break;
-		case 0x0f: NotImplementedInstruction(state); break;
+    	case 0x0f: { 
+            uint8_t x = state->a;
+            state->a = ((x & 1) << 7) | (x >> 1);
+            state->cc.cy = (1 == (x&1));
+        }
 		case 0x10: NotImplementedInstruction(state); break;
-		case 0x11: //LXI D
-				state->e = opcode[1];
-				state->d = opcode[2];
-				state->pc += 2;
-				break;
+		case 0x11: { //LXI D
+            state->e = opcode[1];
+            state->d = opcode[2];
+            state->pc += 2;
+            break;
+        }
 		case 0x12: NotImplementedInstruction(state); break;
-		case 0x13: NotImplementedInstruction(state); break;
+		case 0x13: {
+            state->e++;
+            if (state->e == 0)
+                state->d++;
+            break;	
+        }
 		case 0x14: NotImplementedInstruction(state); break;
 		case 0x15: NotImplementedInstruction(state); break;
 		case 0x16: NotImplementedInstruction(state); break;
 		case 0x17: NotImplementedInstruction(state); break;
 		case 0x18: NotImplementedInstruction(state); break;
-		case 0x19: NotImplementedInstruction(state); break;
+		case 0x19: {
+			uint32_t hl = (state->h << 8) | state->l;
+			uint32_t de = (state->d << 8) | state->e;
+			uint32_t res = hl + de;
+			state->h = (res & 0xff00) >> 8;
+			state->l = res & 0xff;
+			state->cc.cy = ((res & 0xffff0000) != 0);
+			break;
+        }
 		case 0x1a:{ //LDAX D
-                uint16_t offset = (state->d << 8) | state->e;
-                state->a = state->memory[offset];
-                break;
+            uint16_t offset = (state->d << 8) | state->e;
+            state->a = state->memory[offset];
+            break;
         }
 		case 0x1b: NotImplementedInstruction(state); break;
 		case 0x1c: NotImplementedInstruction(state); break;
@@ -394,18 +453,34 @@ int Emulate8080Operation(State8080* state){
 		case 0x1f: NotImplementedInstruction(state); break;
 		case 0x20: NotImplementedInstruction(state); break;
 		case 0x21: //LXI H
-                state->h = opcode[2];
-                state->l = opcode[1];
-                state->pc += 2;
-                break;
+            state->h = opcode[2];
+            state->l = opcode[1];
+            state->pc += 2;
+            break;
 		case 0x22: NotImplementedInstruction(state); break;
-		case 0x23: NotImplementedInstruction(state); break;
+		case 0x23: { // INX H
+            state->l++;
+            if (state->l == 0)
+                state->h++;
+            break;
+        }
 		case 0x24: NotImplementedInstruction(state); break;
 		case 0x25: NotImplementedInstruction(state); break;
-		case 0x26: NotImplementedInstruction(state); break;
+		case 0x26: {
+            state->h = opcode[1];
+			state->pc++;
+			break;
+        }
 		case 0x27: NotImplementedInstruction(state); break;
 		case 0x28: NotImplementedInstruction(state); break;
-		case 0x29: NotImplementedInstruction(state); break;
+		case 0x29: {
+			uint32_t hl = (state->h << 8) | state->l;
+			uint32_t res = hl + hl;
+			state->h = (res & 0xff00) >> 8;
+			state->l = res & 0xff;
+			state->cc.cy = ((res & 0xffff0000) != 0);
+			break;
+        }
 		case 0x2a: NotImplementedInstruction(state); break;
 		case 0x2b: NotImplementedInstruction(state); break;
 		case 0x2c: NotImplementedInstruction(state); break;
@@ -419,19 +494,38 @@ int Emulate8080Operation(State8080* state){
 			state->sp = (opcode[2] << 8 | opcode[1]);
 			state->pc += 2;
 			break;
-		case 0x32: NotImplementedInstruction(state); break;
+		case 0x32: {
+            uint16_t offset = (opcode[2]<<8) | (opcode[1]);
+			state->memory[offset] = state->a;
+			state->pc += 2;
+            break;
+        }
 		case 0x33: NotImplementedInstruction(state); break;
 		case 0x34: NotImplementedInstruction(state); break;
 		case 0x35: NotImplementedInstruction(state); break;
-		case 0x36: NotImplementedInstruction(state); break;
+		case 0x36: {
+            uint16_t offset = (state->h<<8) | state->l;
+			state->memory[offset] = opcode[1];
+			state->pc++;
+            break;
+        } 
 		case 0x37: NotImplementedInstruction(state); break;
 		case 0x38: NotImplementedInstruction(state); break;
 		case 0x39: NotImplementedInstruction(state); break;
-		case 0x3a: NotImplementedInstruction(state); break;
+		case 0x3a: {
+            uint16_t offset = (opcode[2]<<8) | (opcode[1]);
+			state->a = state->memory[offset];
+			state->pc+=2;
+            break;
+        }
 		case 0x3b: NotImplementedInstruction(state); break;
 		case 0x3c: NotImplementedInstruction(state); break;
 		case 0x3d: NotImplementedInstruction(state); break;
-		case 0x3e: NotImplementedInstruction(state); break;
+		case 0x3e: {
+            state->a = opcode[1];
+			state->pc++;
+            break;
+        }
 		case 0x3f: NotImplementedInstruction(state); break;
 		case 0x40: NotImplementedInstruction(state); break;
 		case 0x41: 
@@ -461,7 +555,11 @@ int Emulate8080Operation(State8080* state){
 		case 0x53: NotImplementedInstruction(state); break;
 		case 0x54: NotImplementedInstruction(state); break;
 		case 0x55: NotImplementedInstruction(state); break;
-		case 0x56: NotImplementedInstruction(state); break;
+		case 0x56: {
+            uint16_t offset = (state->h<<8) | (state->l);
+			state->d = state->memory[offset];
+            break;
+        }
 		case 0x57: NotImplementedInstruction(state); break;
 		case 0x58: NotImplementedInstruction(state); break;
 		case 0x59: NotImplementedInstruction(state); break;
@@ -469,7 +567,11 @@ int Emulate8080Operation(State8080* state){
 		case 0x5b: NotImplementedInstruction(state); break;
 		case 0x5c: NotImplementedInstruction(state); break;
 		case 0x5d: NotImplementedInstruction(state); break;
-		case 0x5e: NotImplementedInstruction(state); break;
+		case 0x5e: {
+            uint16_t offset = (state->h<<8) | (state->l);
+			state->e = state->memory[offset];
+            break;
+        }
 		case 0x5f: NotImplementedInstruction(state); break;
 		case 0x60: NotImplementedInstruction(state); break;
 		case 0x61: NotImplementedInstruction(state); break;
@@ -477,7 +579,11 @@ int Emulate8080Operation(State8080* state){
 		case 0x63: NotImplementedInstruction(state); break;
 		case 0x64: NotImplementedInstruction(state); break;
 		case 0x65: NotImplementedInstruction(state); break;
-		case 0x66: NotImplementedInstruction(state); break;
+		case 0x66: {
+            uint16_t offset = (state->h<<8) | (state->l);
+			state->h = state->memory[offset];
+            break;
+        }
 		case 0x67: NotImplementedInstruction(state); break;
 		case 0x68: NotImplementedInstruction(state); break;
 		case 0x69: NotImplementedInstruction(state); break;
@@ -486,7 +592,10 @@ int Emulate8080Operation(State8080* state){
 		case 0x6c: NotImplementedInstruction(state); break;
 		case 0x6d: NotImplementedInstruction(state); break;
 		case 0x6e: NotImplementedInstruction(state); break;
-		case 0x6f: NotImplementedInstruction(state); break;
+		case 0x6f: {
+            state->l = state->a;
+            break;
+        }
 		case 0x70: NotImplementedInstruction(state); break;
 		case 0x71: NotImplementedInstruction(state); break;
 		case 0x72: NotImplementedInstruction(state); break;
@@ -494,12 +603,25 @@ int Emulate8080Operation(State8080* state){
 		case 0x74: NotImplementedInstruction(state); break;
 		case 0x75: NotImplementedInstruction(state); break;
 		case 0x76: NotImplementedInstruction(state); break;
-		case 0x77: NotImplementedInstruction(state); break;
+		case 0x77: {
+            uint16_t offset = (state->h << 8) | (state->l);
+            state->memory[offset] = state->a;
+            break;
+        }
 		case 0x78: NotImplementedInstruction(state); break;
 		case 0x79: NotImplementedInstruction(state); break;
-		case 0x7a: NotImplementedInstruction(state); break;
-		case 0x7b: NotImplementedInstruction(state); break;
-		case 0x7c: NotImplementedInstruction(state); break;
+		case 0x7a: {
+            state->a  = state->d;
+            break;
+        }
+		case 0x7b: {
+            state->a  = state->e;
+            break;
+        }
+		case 0x7c: {
+            state->a  = state->h;
+            break;
+        }
 		case 0x7d: NotImplementedInstruction(state); break;
 		case 0x7e: NotImplementedInstruction(state); break;
 		case 0x7f: NotImplementedInstruction(state); break;
@@ -729,6 +851,7 @@ int main(int argc, char **argv){
 
     while(done == 0){
         done = Emulate8080Operation(state);
+        getchar();
     }
 
     return 0;
