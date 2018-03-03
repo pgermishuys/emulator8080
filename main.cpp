@@ -1,4 +1,39 @@
 #include <iostream>
+#include <SDL2/SDL.h>
+
+const int SCREEN_WIDTH   = 640;
+const int SCREEN_HEIGHT  = 480;
+const char* SCREEN_TITLE = "8080 Emulator";
+
+typedef struct Flags {
+    uint8_t     z:1; // (zero) set to 1 when the result is 0
+    uint8_t     s:1; // (sign) set to 1 when bit 7 (the most significant bit or MSB) of the math instruction is set
+    uint8_t     p:1; // (parity) is set when the answer has even parity, clear when odd parity. PS: Trivia, have a look at (SEU) single event upsets.
+    uint8_t     cy:1; // (carry) set to 1 when the instruction resulted in a carry out or borrow into the high order bit
+    uint8_t     ac:1; // auxillary carry) is used mostly for BCD (binary coded decimal) math.
+    uint8_t     pad:3;
+} Flags;
+
+typedef struct State8080 {
+    // 7 x 8 bit registers
+    uint8_t     a;
+    uint8_t     b;
+    uint8_t     c;
+    uint8_t     d;
+    uint8_t     e;
+    uint8_t     h;
+    uint8_t     l;
+
+    //the stack pointer and program counter are 16 bits each
+    uint16_t    sp; //stack pointer
+    uint16_t    pc; //program counter
+
+    uint8_t     *memory;
+    struct      Flags flags;
+    uint8_t     int_enable;
+} State8080;
+
+State8080* state;
 
 int Parity(int x, int size)
 {
@@ -296,33 +331,6 @@ int Disassemble8080Opcodes(unsigned char *codebuffer, int pc)
     return opbytes;
 }
 
-typedef struct Flags {
-    uint8_t     z:1; // (zero) set to 1 when the result is 0
-    uint8_t     s:1; // (sign) set to 1 when bit 7 (the most significant bit or MSB) of the math instruction is set
-    uint8_t     p:1; // (parity) is set when the answer has even parity, clear when odd parity. PS: Trivia, have a look at (SEU) single event upsets.
-    uint8_t     cy:1; // (carry) set to 1 when the instruction resulted in a carry out or borrow into the high order bit
-    uint8_t     ac:1; // auxillary carry) is used mostly for BCD (binary coded decimal) math.
-    uint8_t     pad:3;
-} Flags;
-
-typedef struct State8080 {
-    // 7 x 8 bit registers
-    uint8_t     a;
-    uint8_t     b;
-    uint8_t     c;
-    uint8_t     d;
-    uint8_t     e;
-    uint8_t     h;
-    uint8_t     l;
-
-    //the stack pointer and program counter are 16 bits each
-    uint16_t    sp; //stack pointer
-    uint16_t    pc; //program counter
-
-    uint8_t     *memory;
-    struct      Flags flags;
-    uint8_t     int_enable;
-} State8080;
 
 void NotImplementedInstruction(State8080* state){
     printf("Error: Not Implemented Instruction\n");
@@ -917,23 +925,54 @@ void LoadFileIntoMemoryAt(State8080* state, char* filename, uint32_t offset){
 
 State8080* InitProcessor(){
 	State8080* state = new State8080();
-	state->memory = new uint8_t();
+	state->memory = (uint8_t *)malloc(0x10000);
 	return state;
 }
 
-int main(int argc, char **argv){
-	int done = 0;
-	State8080* state = InitProcessor();
+int InitialiseWindow(){
+    if (SDL_Init(SDL_INIT_VIDEO) != 0){
+        std::cout << "SDL_Init Error: " << SDL_GetError() << std::endl;
+        return 1;
+    }
+    SDL_Window *win = SDL_CreateWindow(SCREEN_TITLE, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
+    if (win == nullptr){
+        std::cout << "SDL_CreateWindow Error: " << SDL_GetError() << std::endl;
+        SDL_Quit();
+        return 1;
+    }
+    SDL_Renderer *ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (ren == nullptr){
+        SDL_DestroyWindow(win);
+        std::cout << "SDL_CreateRenderer Error: " << SDL_GetError() << std::endl;
+        SDL_Quit();
+        return 1;
+    }
+    SDL_Event e;
+    bool quit = false;
+    while (!quit){
+        while (SDL_PollEvent(&e)){
+            if (e.type == SDL_QUIT){
+                quit = true;
+            }
+        }
+        Emulate8080Operation(state);
+    }
+    SDL_DestroyRenderer(ren);
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+    return 0;
+}
+
+void InitialiseState() {
+	state = InitProcessor();
 
 	LoadFileIntoMemoryAt(state, "invaders.h", 0);
 	LoadFileIntoMemoryAt(state, "invaders.g", 0x800);
 	LoadFileIntoMemoryAt(state, "invaders.f", 0x1000);
 	LoadFileIntoMemoryAt(state, "invaders.e", 0x1800);
+}
 
-
-    while(done == 0){
-        done = Emulate8080Operation(state);
-    }
-
-    return 0;
+int main(int argc, char **argv){
+    InitialiseState();
+    return InitialiseWindow();
 }
