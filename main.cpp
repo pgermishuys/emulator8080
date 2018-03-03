@@ -1,10 +1,8 @@
-#include <iostream>
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_ttf.h>
+#include <iostream>
 
-const int SCREEN_WIDTH   = 640;
-const int SCREEN_HEIGHT  = 480;
-const char* SCREEN_TITLE = "8080 Emulator";
-
+//Emulator (Processor State, etc)
 typedef struct Flags {
     uint8_t     z:1; // (zero) set to 1 when the result is 0
     uint8_t     s:1; // (sign) set to 1 when bit 7 (the most significant bit or MSB) of the math instruction is set
@@ -34,6 +32,14 @@ typedef struct State8080 {
 } State8080;
 
 State8080* state;
+
+//SDL
+const int SCREEN_WIDTH   = 640;
+const int SCREEN_HEIGHT  = 480;
+const char* SCREEN_TITLE = "8080 Emulator";
+
+SDL_Window* window;
+SDL_Renderer* renderer;
 
 int Parity(int x, int size)
 {
@@ -934,19 +940,20 @@ int InitialiseWindow(){
         std::cout << "SDL_Init Error: " << SDL_GetError() << std::endl;
         return 1;
     }
-    SDL_Window *win = SDL_CreateWindow(SCREEN_TITLE, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
-    if (win == nullptr){
+    SDL_Window *window = SDL_CreateWindow(SCREEN_TITLE, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
+    if (window == nullptr){
         std::cout << "SDL_CreateWindow Error: " << SDL_GetError() << std::endl;
         SDL_Quit();
         return 1;
     }
-    SDL_Renderer *ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    if (ren == nullptr){
-        SDL_DestroyWindow(win);
+    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (renderer == nullptr){
+        SDL_DestroyWindow(window);
         std::cout << "SDL_CreateRenderer Error: " << SDL_GetError() << std::endl;
         SDL_Quit();
         return 1;
     }
+
     SDL_Event e;
     bool quit = false;
     while (!quit){
@@ -957,8 +964,9 @@ int InitialiseWindow(){
         }
         Emulate8080Operation(state);
     }
-    SDL_DestroyRenderer(ren);
-    SDL_DestroyWindow(win);
+
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
     SDL_Quit();
     return 0;
 }
